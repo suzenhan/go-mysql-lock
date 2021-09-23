@@ -99,3 +99,36 @@ func (l MysqlLocker) ObtainTimeoutContext(ctx context.Context, key string, timeo
 
 	return lock, nil
 }
+
+// ObtainTimeoutContext tries to acquire lock and gives up when the given context is cancelled
+func (l MysqlLocker) IsLocked(key string) (bool, error) {
+	return l.IsLockedContext(context.Background(), key)
+}
+
+func (l MysqlLocker) IsLockedContext(ctx context.Context, key string) (bool, error) {
+	_, cancelFunc := context.WithCancel(context.Background())
+
+	dbConn, err := l.db.Conn(ctx)
+	if err != nil {
+		cancelFunc()
+		return false, fmt.Errorf("failed to get a db connection: %w", err)
+	}
+
+	row := dbConn.QueryRowContext(ctx, "SELECT COALESCE(IS_USED_LOCK(?), -1)", key)
+
+	var res int
+	err = row.Scan(&res)
+	if err != nil {
+		// mysql error does not tell if it was due to context closing, checking it manually
+		select {
+		case <-ctx.Done():
+			cancelFunc()
+			return false, ErrGetLockContextCancelled
+		default:
+			break
+		}
+		cancelFunc()
+		return false, fmt.Errorf("could not read mysql response: %w", err)
+	}
+	return res != -1, nil
+}

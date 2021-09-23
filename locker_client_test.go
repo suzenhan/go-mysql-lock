@@ -5,6 +5,7 @@ package gomysqllock
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -120,4 +121,19 @@ func TestMysqlLocker_Obtain_DBScanError(t *testing.T) {
 	// setting very long key name shall result into error
 	_, err := locker.Obtain(strings.Repeat("x", 100))
 	assert.Contains(t, err.Error(), "could not read mysql response")
+}
+
+func TestMysqlLocker_IsLocked(t *testing.T) {
+	db, _ := sql.Open("mysql", "root@tcp(localhost:3306)/")
+	locker := NewMysqlLocker(db)
+	key := strings.Repeat("x", 32)
+	lock, err := locker.Obtain(key)
+	fmt.Println(err)
+	isLocked, err := locker.IsLocked(key)
+	assert.Equal(t, isLocked, true)
+	fmt.Println(isLocked, err)
+	lock.Release()
+	isLocked, err = locker.IsLocked(key)
+	assert.Equal(t, isLocked, false)
+	fmt.Println(isLocked, err)
 }
